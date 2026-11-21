@@ -34,6 +34,23 @@
     }
   }
 
+  document.querySelectorAll('.button').forEach((button) => {
+    const release = () => button.classList.remove('is-pressed');
+    button.addEventListener('pointerdown', () => button.classList.add('is-pressed'));
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('pointerleave', release);
+    button.addEventListener('blur', release);
+    button.addEventListener('click', () => {
+      button.classList.remove('is-pressed', 'is-clicked');
+      void button.offsetWidth;
+      button.classList.add('is-clicked');
+    });
+    button.addEventListener('animationend', (event) => {
+      if (event.animationName === 'button-feedback') button.classList.remove('is-clicked');
+    });
+  });
+
   copyBaseButton.addEventListener('click', () => copyText(baseUrl, 'Base URL'));
   copyKeyButton.addEventListener('click', () => copyText(keyNode.textContent, 'API key'));
 
@@ -51,7 +68,13 @@
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.error?.message || 'A key could not be generated. Please try again later.');
+        const message = typeof data?.error?.message === 'string'
+          ? data.error.message
+          : `Key generation failed (HTTP ${response.status}).`;
+        const code = typeof data?.error?.code === 'string' ? `Code: ${data.error.code}. ` : '';
+        const requestId = response.headers.get('x-request-id');
+        const reference = requestId ? ` Reference: ${requestId}.` : '';
+        throw new Error(`${message} ${code}${reference}`.trim());
       }
       if (typeof data.api_key !== 'string' || !data.api_key.startsWith('hx_')) {
         throw new Error('The server returned an invalid key response.');
