@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="One simple API for Hope, powered by HopeXAI.">
+  <title>HopeXAI — One API. Hope.</title>
+  <link rel="stylesheet" href="/static/site.css">
+  <script src="/static/site.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar" aria-label="HopeXAI">
+      <a class="brand" href="/" aria-label="HopeXAI home">Hope<span>X</span>AI</a>
+      <span class="availability">AI API</span>
+    </header>
+
+    <section class="intro" aria-labelledby="title">
+      <p class="eyebrow">A simpler way to build with AI</p>
+      <h1 id="title">One API.<br>Hope, everywhere.</h1>
+      <p class="description">Connect your app to HopeXAI with one OpenAI-compatible API. No account or payment details required.</p>
+    </section>
+
+    <section class="connection" aria-labelledby="connection-title">
+      <h2 id="connection-title">Connection</h2>
+      <div class="connection-row">
+        <div class="value-group">
+          <span class="field-label">API base URL</span>
+          <code id="base-url" class="value">Loading…</code>
+        </div>
+        <button class="button button-outline" id="copy-base" type="button">Copy URL</button>
+      </div>
+    </section>
+
+    <section class="key-section" aria-labelledby="key-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="key-title">Your API key</h2>
+          <p class="supporting">Keys are shown once. Save yours somewhere secure.</p>
+        </div>
+      </div>
+      <button class="button button-solid" id="generate-key" type="button">Generate API key</button>
+      <div id="key-result" class="key-result" hidden>
+        <div class="key-value-row">
+          <code id="api-key" class="value key-value"></code>
+          <button class="button button-outline" id="copy-key" type="button">Copy key</button>
+        </div>
+        <p class="key-note">This key will not be shown again. Generating another key will not revoke this one.</p>
+      </div>
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+    </section>
+
+    <footer class="footer"><span>HopeXAI</span><span>Private by design.</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hopexai
+      POSTGRES_USER: hopexai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set a strong POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hopexai -d hopexai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [hopexai_internal]
+
+  gateway:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOPEXAI_HOME: /app
+      HOPEXAI_CONFIG: /data/hopexai.config.yaml
+      HOPEXAI_STATE_DIR: /data/state
+      HOPEXAI_AUTO_CREATE_SCHEMA: "false"
+      HOPEXAI_TRUSTED_PROXY_CIDRS: 172.30.0.0/16
+      HOPEXAI_PUBLIC_ORIGIN: "${HOPEXAI_PUBLIC_ORIGIN:-https://hopefreexai.vercel.app}"
+      HOPEXAI_VERCEL_PROXY_SECRET: "${HOPEXAI_VERCEL_PROXY_SECRET:?Set a random shared proxy secret in .env and Vercel}"
+      DATABASE_URL: postgresql+asyncpg://hopexai:${POSTGRES_PASSWORD}@db:5432/hopexai
+      LOG_LEVEL: INFO
+    expose:
+      - "8000"
+    volumes:
+      - ./private:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2).read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    networks:
+      hopexai_internal:
+        aliases: [hopexai_gateway]
+
+volumes:
+  postgres_data:
+
+networks:
+  hopexai_internal:
+    name: hopexai_internal
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16

@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+.pytest_cache
+.pytest_cache/**
+private
+var
+*.db
+*.sqlite
+.env
+.env.*
+!.env.example
+coverage
+htmlcov

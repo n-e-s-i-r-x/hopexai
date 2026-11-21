@@ -1,0 +1,13 @@
+# The Vercel project contains only the static frontend and its rewrite config.
+# Keep backend-private state and local development artifacts out of the upload.
+private/
+var/
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+*.sqlite
+*.sqlite3

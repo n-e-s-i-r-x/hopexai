@@ -1,0 +1,31 @@
+# Secrets / private provider configuration
+private/hopexai.config.yaml
+private/*.yaml
+private/*.yml
+private/state/
+private/master.key
+.env
+.env.*
+!.env.example
+
+# Runtime data
+var/
+.vercel/
+.vercel-output/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
