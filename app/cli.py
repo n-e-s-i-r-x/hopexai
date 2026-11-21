@@ -5,7 +5,8 @@ import asyncio
 import json
 import logging
 import os
-import shutil
+import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -47,16 +48,12 @@ def _ensure_setup(settings: Settings) -> None:
         os.chmod(settings.state_dir, 0o700)
     except OSError:
         pass
-    if not settings.config_path.exists():
-        example = Path(__file__).resolve().parents[1] / "config" / "hopexai.config.example.yaml"
-        if not example.exists():
-            raise SystemExit("Configuration example not found; copy config/hopexai.config.example.yaml manually.")
-        shutil.copyfile(example, settings.config_path)
-        os.chmod(settings.config_path, 0o600)
-        print(f"Created private configuration: {settings.config_path}")
+    if not settings.config_path.is_file():
+        raise SystemExit(f"Active HopeXAI configuration was not found: {settings.config_path}")
     SecretStore(settings.state_dir).ensure()
-    print(f"Persistent master key ready: {settings.state_dir / 'master.key'}")
-    print("Next: edit the private YAML file, then run `python -m app.cli config validate` and `python -m app.cli db migrate`.")
+    print(f"Active provider configuration: {settings.config_path}")
+    print(f"Local master key ready: {settings.state_dir / 'master.key'}")
+    print("Edit the active configuration file directly, then run `python -m app.cli config validate` and `python -m app.cli db migrate`.")
 
 
 async def _validate_config(settings: Settings) -> None:
@@ -110,7 +107,11 @@ async def _encrypt_config(settings: Settings) -> None:
                 continue
             encrypted = []
             for item in base["api_keys"]:
-                if isinstance(item, str) and not item.startswith("ENC[v1:"):
+                if (
+                    isinstance(item, str)
+                    and not item.startswith("ENC[v1:")
+                    and not re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", item)
+                ):
                     encrypted.append(secret_store.encrypt_config_secret(item))
                     count += 1
                 else:
@@ -269,6 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("setup", help="create the private config and persistent encryption key")
+    sub.add_parser("serverless-secret", help="print one random stable 32-byte key for Vercel HOPEXAI_MASTER_KEY")
     config = sub.add_parser("config", help="validate or protect the private YAML configuration")
     config_sub = config.add_subparsers(dest="config_command", required=True)
     config_sub.add_parser("validate", help="validate without displaying credentials")
@@ -299,6 +301,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "serverless-secret":
+        print(secrets.token_urlsafe(32))
+        return
     settings = _settings()
     if args.command == "setup":
         _ensure_setup(settings)

@@ -25,7 +25,10 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
     _prepare_sqlite_path(settings.database_url)
     kwargs: dict[str, object] = {"pool_pre_ping": True}
     if settings.database_url.startswith("postgresql+"):
-        kwargs.update({"pool_size": 20, "max_overflow": 20, "pool_recycle": 1800})
+        if settings.vercel_runtime:
+            kwargs.update({"pool_size": 2, "max_overflow": 0, "pool_recycle": 600})
+        else:
+            kwargs.update({"pool_size": 20, "max_overflow": 20, "pool_recycle": 1800})
     engine = create_async_engine(settings.database_url, **kwargs)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     return engine, session_factory
@@ -33,6 +36,12 @@ def create_database(settings: Settings) -> tuple[AsyncEngine, async_sessionmaker
 
 async def initialize_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            # Serialize first-start schema creation across concurrent serverless
+            # instances. Vercel can cold-start multiple function instances at once.
+            from sqlalchemy import text
+
+            await connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 0x484F5045584149})
         await connection.run_sync(Base.metadata.create_all)
 
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -15,10 +17,12 @@ class SecretStoreError(RuntimeError):
 
 
 class SecretStore:
-    """Persistent local key material for config encryption and keyed digests.
+    """Stable key material for config encryption and keyed digests.
 
-    The master key is created once with restrictive permissions and must live on
-    persistent private storage. It is never returned through the HTTP API.
+    Traditional deployments keep the key in a permission-restricted file. Vercel
+    deployments supply the same 32-byte key through a server-only environment
+    variable because function filesystems are ephemeral. The key is never
+    returned through the HTTP API.
     """
 
     def __init__(self, state_dir: Path):
@@ -27,6 +31,24 @@ class SecretStore:
         self._key: bytes | None = None
 
     def ensure(self) -> bytes:
+        if self._key is not None:
+            return self._key
+        configured_key = os.getenv("HOPEXAI_MASTER_KEY")
+        if configured_key:
+            try:
+                if re.fullmatch(r"[0-9a-fA-F]{64}", configured_key):
+                    material = bytes.fromhex(configured_key)
+                else:
+                    padded = configured_key + "=" * (-len(configured_key) % 4)
+                    material = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+            except (binascii.Error, ValueError, UnicodeEncodeError) as exc:
+                raise SecretStoreError("HOPEXAI_MASTER_KEY must be a 32-byte base64url or 64-character hex value") from exc
+            if len(material) != 32:
+                raise SecretStoreError("HOPEXAI_MASTER_KEY must decode to exactly 32 bytes")
+            self._key = material
+            return material
+        if os.getenv("VERCEL", "").strip().lower() in {"1", "true", "yes"}:
+            raise SecretStoreError("HOPEXAI_MASTER_KEY is required on Vercel and must remain stable across deployments")
         if self.state_dir.is_symlink():
             raise SecretStoreError("state directory must not be a symbolic link")
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)

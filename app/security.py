@@ -247,6 +247,7 @@ def get_client_ip(
     trusted_proxy_cidrs: tuple[str, ...] = (),
     *,
     vercel_proxy_secret: str | None = None,
+    vercel_runtime: bool = False,
 ) -> str:
     peer = request.client.host if request.client else "0.0.0.0"
     try:
@@ -254,9 +255,9 @@ def get_client_ip(
     except ValueError:
         return "0.0.0.0"
 
-    # Vercel rewrites identify the visitor in X-Forwarded-For. Trust that value
-    # only when Vercel has overwritten a private marker header with the shared
-    # deployment secret; do not trust a browser-supplied forwarding header.
+    # Legacy deployments that rewrite to an external gateway identify the
+    # visitor in X-Forwarded-For only after a shared secret proves the rewrite.
+    # Native Vercel deployments use the platform-managed headers below instead.
     if vercel_proxy_secret:
         supplied_secret = request.headers.get("x-hopexai-vercel-proxy-secret", "")
         if supplied_secret and secrets.compare_digest(supplied_secret, vercel_proxy_secret):
@@ -265,6 +266,19 @@ def get_client_ip(
                 return str(ipaddress.ip_address(forwarded))
             except ValueError:
                 return str(peer_ip)
+
+    if vercel_runtime:
+        # Vercel overwrites these platform headers with the original public IP.
+        # This is enabled only for the native Vercel runtime, not for a generic
+        # reverse proxy where clients could spoof forwarding headers.
+        forwarded = (
+            request.headers.get("x-vercel-forwarded-for")
+            or request.headers.get("x-forwarded-for", "")
+        ).split(",", 1)[0].strip()
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            return str(peer_ip)
 
     trusted_networks = []
     for cidr in trusted_proxy_cidrs:

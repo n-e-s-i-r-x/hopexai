@@ -23,6 +23,7 @@ class Candidate:
     key_fingerprint: str = "none"
     key_options: list[tuple[str | None, str]] = field(default_factory=list, repr=False)
     endpoint_path: str | None = None
+    max_output_parameter: str | None = None
 
     @property
     def provider_name(self) -> str:

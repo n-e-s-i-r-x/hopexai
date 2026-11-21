@@ -45,6 +45,9 @@ class UpstreamFailure(Exception):
     scope: str = "base"  # key | model | base | provider
     retry_after_seconds: int | None = None
     detail_for_logs: str | None = None
+    output_token_limit: int | None = None
+    output_parameter: str | None = None
+    output_limit_rejected: bool = False
 
     def __str__(self) -> str:
         return self.error_code

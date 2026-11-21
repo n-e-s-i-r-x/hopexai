@@ -38,6 +38,34 @@ def _float(name: str, default: float, minimum: float = 0.0, maximum: float = 360
     return parsed
 
 
+def _read_project_config() -> str:
+    path = Path(__file__).resolve().parents[1] / "config" / "hopexai.config.yaml"
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("The active configuration file config/hopexai.config.yaml is missing or unsafe")
+    text = path.read_text("utf-8")
+    if len(text.encode("utf-8")) > 64_000:
+        raise RuntimeError("config/hopexai.config.yaml must be no larger than 64 KB")
+    return text
+
+
+def _write_serverless_config(path: Path, contents: str) -> None:
+    encoded = contents.encode("utf-8")
+    if len(encoded) > 64_000:
+        raise RuntimeError("config/hopexai.config.yaml must be no larger than 64 KB")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     database_url: str
@@ -56,27 +84,46 @@ class Settings:
     log_level: str = "INFO"
     public_origin: str | None = None
     vercel_proxy_secret: str | None = None
+    vercel_runtime: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
+        vercel_runtime = os.getenv("VERCEL", "").strip().lower() in {"1", "true", "yes"}
+        configured_db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
         root = Path(os.getenv("HOPEXAI_HOME", Path.cwd())).expanduser().resolve()
-        db_url = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{root / 'var' / 'hopexai.db'}")
-        if db_url.startswith("postgresql://"):
+        if vercel_runtime:
+            # Vercel function instances have ephemeral filesystems. SQLite here
+            # is only a per-instance cache for discovery and health—not durable
+            # API-key or conversation storage. API-key auth is stateless.
+            root = Path(os.getenv("HOPEXAI_RUNTIME_DIR", "/tmp/hopexai")).expanduser().resolve()
+            db_url = f"sqlite+aiosqlite:///{root / 'var' / 'hopexai.db'}"
+        else:
+            db_url = configured_db_url or f"sqlite+aiosqlite:///{root / 'var' / 'hopexai.db'}"
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgresql://"):
             db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        config_path = Path(os.getenv("HOPEXAI_CONFIG", str(root / "private" / "hopexai.config.yaml"))).expanduser()
-        state_dir = Path(os.getenv("HOPEXAI_STATE_DIR", str(root / "private" / "state"))).expanduser()
-        if not config_path.is_absolute():
-            config_path = root / config_path
-        if not state_dir.is_absolute():
-            state_dir = root / state_dir
-        config_path = config_path.absolute()
-        state_dir = state_dir.absolute()
+
+        if vercel_runtime:
+            config_path = root / "private" / "hopexai.config.yaml"
+            state_dir = root / "private" / "state"
+            _write_serverless_config(config_path, _read_project_config())
+        else:
+            config_path = Path(os.getenv("HOPEXAI_CONFIG", str(root / "config" / "hopexai.config.yaml"))).expanduser()
+            state_dir = Path(os.getenv("HOPEXAI_STATE_DIR", str(root / "private" / "state"))).expanduser()
+            if not config_path.is_absolute():
+                config_path = root / config_path
+            if not state_dir.is_absolute():
+                state_dir = root / state_dir
+            config_path = config_path.absolute()
+            state_dir = state_dir.absolute()
+
         proxies = tuple(x.strip() for x in os.getenv("HOPEXAI_TRUSTED_PROXY_CIDRS", "").split(",") if x.strip())
         return cls(
             database_url=db_url,
             config_path=config_path,
             state_dir=state_dir,
-            auto_create_schema=_bool("HOPEXAI_AUTO_CREATE_SCHEMA", False),
+            auto_create_schema=True if vercel_runtime else _bool("HOPEXAI_AUTO_CREATE_SCHEMA", False),
             config_poll_interval=_float("HOPEXAI_CONFIG_POLL_INTERVAL", 2.0, 0.1, 60.0),
             max_request_bytes=_int("HOPEXAI_MAX_REQUEST_BYTES", 2_097_152, 16_384, 50_000_000),
             max_messages=_int("HOPEXAI_MAX_MESSAGES", 200, 1, 10_000),
@@ -87,6 +134,7 @@ class Settings:
             response_state_max_bytes=_int("HOPEXAI_RESPONSE_STATE_MAX_BYTES", 2_000_000, 10_000, 50_000_000),
             trusted_proxy_cidrs=proxies,
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-            public_origin=os.getenv("HOPEXAI_PUBLIC_ORIGIN") or None,
-            vercel_proxy_secret=os.getenv("HOPEXAI_VERCEL_PROXY_SECRET") or None,
+            public_origin=None if vercel_runtime else (os.getenv("HOPEXAI_PUBLIC_ORIGIN") or None),
+            vercel_proxy_secret=None if vercel_runtime else (os.getenv("HOPEXAI_VERCEL_PROXY_SECRET") or None),
+            vercel_runtime=vercel_runtime,
         )

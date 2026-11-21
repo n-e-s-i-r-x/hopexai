@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, AsyncIterator
@@ -67,6 +68,125 @@ def _retry_after(headers: httpx.Headers) -> int | None:
             return None
 
 
+def _output_parameter_error(text: str) -> tuple[bool, str | None]:
+    names = ("max_tokens", "max_completion_tokens", "max_output_tokens")
+    unsupported = any(marker in text for marker in (
+        "unsupported parameter", "unsupported_parameter", "unknown parameter", "unknown_parameter",
+        "unrecognized parameter", "unrecognized_parameter", "not supported for this model",
+        "not supported with this model", "does not support parameter", "parameter is not supported",
+        "parameter_not_supported", "invalid parameter", "invalid_parameter",
+    ))
+    mentioned = [name for name in names if name in text]
+    if not unsupported or not mentioned:
+        return False, None
+    recommendation = re.search(r"(?:use|try|switch to)\s*[`'\"(]*(max_tokens|max_completion_tokens|max_output_tokens)\b", text)
+    if recommendation and recommendation.group(1) in mentioned:
+        return True, recommendation.group(1)
+    if "max_completion_tokens" in mentioned and "max_tokens" in mentioned:
+        # When the provider names both fields, use the one it presents as the
+        # replacement (normally the second name in an error such as "use X").
+        replacement = "max_completion_tokens" if text.find("max_tokens") < text.find("max_completion_tokens") else "max_tokens"
+        return True, replacement
+    if "max_tokens" in mentioned:
+        return True, "max_completion_tokens"
+    if "max_completion_tokens" in mentioned:
+        return True, "max_tokens"
+    return True, "max_tokens"
+
+
+def _output_token_limit_error(text: str) -> bool:
+    names = (
+        "max_tokens", "max_completion_tokens", "max_output_tokens", "max output tokens",
+        "maximum output tokens", "output token limit", "output-token limit",
+    )
+    limits = (
+        "too large", "too high", "exceed", "maximum", "limit", "at most", "less than",
+        "greater than", "must be", "cannot be more", "not be greater", "not exceed",
+    )
+    return any(name in text for name in names) and any(marker in text for marker in limits)
+
+
+def _extract_output_token_limit(text: str) -> int | None:
+    # Context-window errors are input-plus-output failures, not an output-cap
+    # signal; reducing only the completion budget would misclassify them.
+    if any(marker in text for marker in ("context_length_exceeded", "maximum context length", "context window")):
+        return None
+    # Prefer an explicitly advertised provider cap over the rejected request
+    # value, which commonly appears first in the error message.
+    patterns = (
+        r"(?:maximum|limit|allowed|at most|no more than|up to|cannot exceed|must not exceed)(?:[^0-9]{0,50})([0-9][0-9,]{0,8})\s*(?:output[_\s-]?tokens?|tokens?)?",
+        r"(?:max[_\s-]?(?:completion[_\s-]?)?tokens?|max[_\s-]?output[_\s-]?tokens?|maximum output tokens?)[^0-9]{0,80}([0-9][0-9,]{0,8})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            digits = match.group(1).replace(",", "")
+            if digits:
+                value = int(digits)
+                if 1 <= value <= 1_000_000:
+                    return value
+    return None
+
+
+OUTPUT_TOKEN_FALLBACK_RETRIES = 10
+
+
+def _default_output_parameter(candidate: Candidate) -> str:
+    if candidate.api_format == "openai_responses" and candidate.endpoints.get("responses"):
+        return "max_output_tokens"
+    return "max_tokens"
+
+
+def _lower_output_limit(current: int, provider_limit: int | None) -> int | None:
+    if current <= 1:
+        return None
+    if provider_limit is not None and 1 <= provider_limit < current:
+        return provider_limit
+    return max(1, current // 2)
+
+
+async def _retry_output_limit(operation, candidate: Candidate, request: CanonicalRequest):
+    """Retry only definite pre-output validation rejections, with a bounded cap."""
+    current_candidate = candidate
+    current_request = request
+    tried_parameters = {candidate.max_output_parameter or _default_output_parameter(candidate)}
+    fallback_retries = 0
+    while True:
+        try:
+            return await operation(current_candidate, current_request)
+        except UpstreamFailure as failure:
+            if (
+                failure.error_code not in {"upstream_invalid_request", "model_context_limit"}
+                or fallback_retries >= OUTPUT_TOKEN_FALLBACK_RETRIES
+            ):
+                raise
+
+            if failure.output_parameter and failure.output_parameter not in tried_parameters:
+                tried_parameters.add(failure.output_parameter)
+                current_candidate = replace(current_candidate, max_output_parameter=failure.output_parameter)
+                fallback_retries += 1
+                logger.info(
+                    "retrying with provider-compatible output-token parameter provider=%s model=%s parameter=%s",
+                    current_candidate.provider_name, current_candidate.model_id, failure.output_parameter,
+                )
+                continue
+
+            if (
+                (failure.output_limit_rejected or failure.error_code == "model_context_limit")
+                and current_request.max_output_tokens is not None
+            ):
+                lower_limit = _lower_output_limit(current_request.max_output_tokens, failure.output_token_limit)
+                if lower_limit is not None:
+                    current_request = replace(current_request, max_output_tokens=lower_limit)
+                    fallback_retries += 1
+                    logger.info(
+                        "retrying with lower output-token limit provider=%s model=%s limit=%d",
+                        current_candidate.provider_name, current_candidate.model_id, lower_limit,
+                    )
+                    continue
+            raise
+
+
 def _classify_http_failure(status: int, body: bytes, headers: httpx.Headers, candidate: Candidate, defaults: GatewayDefaults) -> UpstreamFailure:
     text = body[:MAX_UPSTREAM_ERROR_BYTES].decode("utf-8", "ignore").lower()
     retry_after = _retry_after(headers)
@@ -99,8 +219,21 @@ def _classify_http_failure(status: int, body: bytes, headers: httpx.Headers, can
             return UpstreamFailure("model_unavailable", status, True, "model", retry_after, "upstream model was not found")
         return UpstreamFailure("endpoint_not_found", status, True, "endpoint", retry_after, "upstream endpoint was not found")
     if status in {400, 405, 415, 422}:
+        unsupported, alternate_parameter = _output_parameter_error(text)
+        if unsupported:
+            return UpstreamFailure(
+                "upstream_invalid_request", status, True, "endpoint", retry_after,
+                "provider rejected its output-token parameter", output_parameter=alternate_parameter,
+            )
         if any(token in text for token in ("context_length_exceeded", "maximum context length", "too many tokens", "context window")):
             return UpstreamFailure("model_context_limit", status, True, "model", retry_after, "upstream model context limit exceeded")
+        if _output_token_limit_error(text):
+            return UpstreamFailure(
+                "upstream_invalid_request", status, True, "endpoint", retry_after,
+                "provider rejected the requested output-token limit",
+                output_token_limit=_extract_output_token_limit(text),
+                output_limit_rejected=True,
+            )
         return UpstreamFailure("upstream_invalid_request", status, True, "endpoint", retry_after, "upstream rejected translated request")
     if status == 408:
         return UpstreamFailure("upstream_timeout", status, idempotent_retry, "base", retry_after, "upstream timed out")
@@ -175,6 +308,19 @@ class UpstreamClient:
         defaults: GatewayDefaults,
         request_id: str,
     ) -> CanonicalResponse:
+        async def invoke(selected_candidate: Candidate, selected_request: CanonicalRequest) -> CanonicalResponse:
+            return await self._complete_once(selected_candidate, selected_request, public_kind, defaults, request_id)
+
+        return await _retry_output_limit(invoke, candidate, request)
+
+    async def _complete_once(
+        self,
+        candidate: Candidate,
+        request: CanonicalRequest,
+        public_kind: str,
+        defaults: GatewayDefaults,
+        request_id: str,
+    ) -> CanonicalResponse:
         adapter = self.adapters.for_candidate(candidate)
         try:
             spec = adapter.build(candidate, request, public_kind, False)
@@ -235,6 +381,19 @@ class UpstreamClient:
             await response.aclose()
 
     async def begin_stream(
+        self,
+        candidate: Candidate,
+        request: CanonicalRequest,
+        public_kind: str,
+        defaults: GatewayDefaults,
+        request_id: str,
+    ) -> UpstreamStream:
+        async def invoke(selected_candidate: Candidate, selected_request: CanonicalRequest) -> UpstreamStream:
+            return await self._begin_stream_once(selected_candidate, selected_request, public_kind, defaults, request_id)
+
+        return await _retry_output_limit(invoke, candidate, request)
+
+    async def _begin_stream_once(
         self,
         candidate: Candidate,
         request: CanonicalRequest,

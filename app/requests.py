@@ -125,38 +125,6 @@ def _validate_messages(messages: Any, max_messages: int) -> list[dict[str, Any]]
             for part in content:
                 if not isinstance(part, (dict, str)):
                     raise PublicAPIError(400, "Message content parts must be objects or strings.", "invalid_request_error", "invalid_message_content", "messages")
-                if isinstance(part, dict):
-                    part_type = part.get("type")
-                    if not isinstance(part_type, str) or not part_type:
-                        raise PublicAPIError(
-                            400,
-                            "Each message content object must include a supported type.",
-                            "invalid_request_error",
-                            "invalid_message_content",
-                            "messages",
-                        )
-                    if part_type in {
-                        "input_audio", "audio", "input_audio_buffer", "audio_url", "audio_file",
-                        "input_video", "video", "video_url", "file", "input_file", "document",
-                        "document_url", "pdf",
-                    }:
-                        raise PublicAPIError(
-                            501,
-                            "Audio, video, and document inputs are not implemented on HopeXAI's public API yet.",
-                            "invalid_request_error",
-                            "unsupported_capability",
-                            "messages",
-                        )
-                    if part_type is not None and part_type not in {
-                        "text", "input_text", "output_text", "image_url", "input_image", "image",
-                    }:
-                        raise PublicAPIError(
-                            501,
-                            "This message content type is not implemented on HopeXAI's public API.",
-                            "invalid_request_error",
-                            "unsupported_capability",
-                            "messages",
-                        )
         normalized = {key: value for key, value in item.items() if key in {
             "role", "content", "name", "tool_calls", "tool_call_id", "function_call", "reasoning_summary", "refusal"
         }}
@@ -371,17 +339,8 @@ def _responses_content_to_chat(content: Any) -> Any:
             if not isinstance(image_url, str) or not (image_url.startswith("https://") or image_url.startswith("http://") or image_url.startswith("data:image/")):
                 raise PublicAPIError(400, "input_image requires a public image_url or data:image URL; file IDs are not supported.", "invalid_request_error", "invalid_image_input", "input")
             result.append({"type": "image_url", "image_url": {"url": image_url, "detail": part.get("detail", "auto")}})
-        elif kind in {
-            "input_audio", "audio", "audio_url", "input_video", "video", "video_url",
-            "input_file", "file", "document", "document_url", "pdf",
-        }:
-            raise PublicAPIError(
-                501,
-                "Audio, video, and document inputs are not implemented on HopeXAI's public API yet.",
-                "invalid_request_error",
-                "unsupported_capability",
-                "input",
-            )
+        elif kind in {"input_audio", "audio"}:
+            raise PublicAPIError(501, "Audio input is not implemented on HopeXAI's public API yet.", "invalid_request_error", "unsupported_capability", "input")
         else:
             raise PublicAPIError(400, "Unsupported Responses content item.", "invalid_request_error", "invalid_input", "input")
     return result

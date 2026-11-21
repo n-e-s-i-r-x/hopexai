@@ -16,7 +16,6 @@ from .requests import CanonicalRequest
 from .types import Candidate
 
 logger = logging.getLogger("hopexai.registry")
-PREFERRED_CONTEXT_WINDOW_TOKENS = 1_000_000
 
 
 class Registry:
@@ -267,21 +266,6 @@ class Registry:
             viable.append(clone)
         if not viable:
             return None
-
-        # Context preference outranks provider priority and affinity: when any
-        # compatible, healthy 1M+ model exists, select only within that tier.
-        large_context = [
-            item for item in viable
-            if item.context_window is not None
-            and item.context_window >= PREFERRED_CONTEXT_WINDOW_TOKENS
-        ]
-        if large_context:
-            viable = large_context
-        else:
-            known_context = [item for item in viable if item.context_window is not None]
-            if known_context:
-                largest_context = max(item.context_window for item in known_context)
-                viable = [item for item in known_context if item.context_window == largest_context]
 
         if affinity:
             same_provider = [item for item in viable if item.provider_name == affinity.get("provider_name")]

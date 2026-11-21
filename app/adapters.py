@@ -230,7 +230,7 @@ class OpenAIChatAdapter(BaseAdapter):
             "stream": stream,
         }
         if request.max_output_tokens is not None:
-            body["max_tokens"] = request.max_output_tokens
+            body[candidate.max_output_parameter or "max_tokens"] = request.max_output_tokens
         if request.temperature is not None:
             body["temperature"] = request.temperature
         if request.top_p is not None:
@@ -378,7 +378,7 @@ class OpenAIResponsesAdapter(BaseAdapter):
             "stream": stream,
         }
         if request.max_output_tokens is not None:
-            body["max_output_tokens"] = request.max_output_tokens
+            body[candidate.max_output_parameter or "max_output_tokens"] = request.max_output_tokens
         if request.temperature is not None:
             body["temperature"] = request.temperature
         if request.top_p is not None:
@@ -563,13 +563,14 @@ class AnthropicAdapter(BaseAdapter):
                 })
             messages.append({"role": "assistant" if role == "assistant" else "user", "content": blocks or [{"type": "text", "text": ""}]})
 
+        max_output_parameter = candidate.max_output_parameter or "max_tokens"
         body: dict[str, Any] = {
             "model": candidate.model_id,
             "system": request.system_text(),
             "messages": messages,
-            "max_tokens": request.max_output_tokens or 1024,
             "stream": stream,
         }
+        body[max_output_parameter] = request.max_output_tokens or 1024
         if request.temperature is not None:
             body["temperature"] = request.temperature
         if request.top_p is not None:
@@ -609,7 +610,7 @@ class AnthropicAdapter(BaseAdapter):
                 }}
         if (request.reasoning_enabled is True or request.reasoning_effort) and candidate.capabilities.get("reasoning") is True:
             budget_map = {"minimal": 1024, "low": 2048, "medium": 4096, "high": 8192, "extra_high": 12000, "maximum": 16000}
-            max_tokens = int(body["max_tokens"])
+            max_tokens = int(body[max_output_parameter])
             if max_tokens > 1:
                 budget = budget_map.get(request.reasoning_effort or "medium", 4096)
                 body["thinking"] = {"type": "enabled", "budget_tokens": min(budget, max_tokens - 1)}

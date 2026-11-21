@@ -190,8 +190,6 @@ def _context_window(metadata: dict[str, Any]) -> int | None:
     candidates = [
         metadata.get("context_window"), metadata.get("context_length"), metadata.get("max_context_length"),
         metadata.get("max_model_len"), metadata.get("context_length_limit"), metadata.get("max_input_tokens"),
-        metadata.get("input_token_limit"), metadata.get("inputTokenLimit"), metadata.get("max_input_length"),
-        metadata.get("max_seq_len"), metadata.get("context_size"), metadata.get("n_ctx"),
     ]
     for candidate in candidates:
         if isinstance(candidate, dict):

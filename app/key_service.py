@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import hashlib
+import hmac
+import re
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -26,11 +32,93 @@ class KeyService:
         self.sessions = sessions
         self.secrets_store = secrets_store
         self.settings = settings
+        self._serverless_lock = asyncio.Lock()
+        self._issue_events: dict[str, list[float]] = {}
+        self._request_windows: dict[str, tuple[float, int]] = {}
 
     def fingerprint(self, value: str) -> str:
         return self.secrets_store.digest(value, "api-key-hash")
 
+    @staticmethod
+    def _b64url(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _unb64url(value: str) -> bytes:
+        padded = value + "=" * (-len(value) % 4)
+        return base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+
+    def _serverless_key_id(self, secret: str) -> str:
+        return str(uuid.UUID(hex=self.secrets_store.digest(secret, "api-key-id")[:32]))
+
+    def _serverless_record(self, secret: str, created_at: datetime) -> APIKeyRecord:
+        return APIKeyRecord(
+            id=self._serverless_key_id(secret),
+            secret_hash=self.fingerprint(secret),
+            prefix=secret[:12],
+            created_at=created_at,
+        )
+
+    def _issue_serverless_key(self, now: datetime) -> tuple[str, APIKeyRecord]:
+        issued_at = int(now.timestamp())
+        nonce = self._b64url(secrets.token_bytes(24))
+        payload = f"v1.{issued_at}.{nonce}"
+        signature = hmac.new(
+            self.secrets_store.key,
+            b"hopexai:serverless-api-key:" + payload.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        secret = f"hx_{payload}.{self._b64url(signature)}"
+        return secret, self._serverless_record(secret, now)
+
+    def _authenticate_serverless_key(self, secret: str) -> APIKeyRecord | None:
+        match = re.fullmatch(r"hx_v1\.(\d{1,12})\.([A-Za-z0-9_-]{32})\.([A-Za-z0-9_-]{43})", secret)
+        if match is None:
+            return None
+        version = "v1"
+        issued_at, nonce, signature_text = match.groups()
+        try:
+            if int(issued_at) > int(time.time()) + 300:
+                return None
+            if len(self._unb64url(nonce)) != 24:
+                return None
+            signature = self._unb64url(signature_text)
+            if len(signature) != hashlib.sha256().digest_size:
+                return None
+            payload = f"{version}.{issued_at}.{nonce}"
+            expected = hmac.new(
+                self.secrets_store.key,
+                b"hopexai:serverless-api-key:" + payload.encode("ascii"),
+                hashlib.sha256,
+            ).digest()
+        except (ValueError, UnicodeEncodeError):
+            return None
+        if not hmac.compare_digest(signature, expected):
+            return None
+        created_at = datetime.fromtimestamp(int(issued_at), timezone.utc)
+        return self._serverless_record(secret, created_at)
+
+    async def _issue_serverless(self, ip_digest: str) -> tuple[str, APIKeyRecord]:
+        now = utcnow()
+        timestamp = now.timestamp()
+        async with self._serverless_lock:
+            events = [item for item in self._issue_events.get(ip_digest, []) if timestamp - item < 86_400]
+            hourly = sum(timestamp - item < 3_600 for item in events)
+            if hourly >= self.settings.key_issue_per_hour or len(events) >= self.settings.key_issue_per_day:
+                self._issue_events[ip_digest] = events
+                raise PublicAPIError(429, "Key generation is temporarily rate limited. Try again later.", "rate_limit_error", "key_generation_rate_limited")
+            events.append(timestamp)
+            self._issue_events[ip_digest] = events
+            if len(self._issue_events) > 4096:
+                self._issue_events = {
+                    key: values for key, values in self._issue_events.items()
+                    if values and timestamp - values[-1] < 86_400
+                }
+        return self._issue_serverless_key(now)
+
     async def issue(self, ip_digest: str) -> tuple[str, APIKeyRecord]:
+        if self.settings.vercel_runtime:
+            return await self._issue_serverless(ip_digest)
         now = utcnow()
         async with self.sessions() as session:
             async with session.begin():
@@ -92,6 +180,11 @@ class KeyService:
         secret = bearer_value.strip()
         if not secret.startswith("hx_") or len(secret) < 30 or len(secret) > 128:
             raise PublicAPIError(401, "A valid HopeXAI API key is required.", "authentication_error", "invalid_api_key")
+        if self.settings.vercel_runtime:
+            record = self._authenticate_serverless_key(secret)
+            if record is None:
+                raise PublicAPIError(401, "A valid HopeXAI API key is required.", "authentication_error", "invalid_api_key")
+            return record
         key_hash = self.fingerprint(secret)
         async with self.sessions() as session:
             record = await session.scalar(select(APIKeyRecord).where(APIKeyRecord.secret_hash == key_hash))
@@ -101,6 +194,21 @@ class KeyService:
             return record
 
     async def register_request(self, key_id: str) -> None:
+        if self.settings.vercel_runtime:
+            now = time.monotonic()
+            async with self._serverless_lock:
+                started, count = self._request_windows.get(key_id, (now, 0))
+                if now - started >= 60:
+                    started, count = now, 0
+                if count >= self.settings.api_key_requests_per_minute:
+                    raise PublicAPIError(429, "Request rate limit exceeded. Please retry shortly.", "rate_limit_error", "api_key_rate_limited")
+                self._request_windows[key_id] = (started, count + 1)
+                if len(self._request_windows) > 8192:
+                    self._request_windows = {
+                        key: value for key, value in self._request_windows.items()
+                        if now - value[0] < 60
+                    }
+            return
         now = utcnow()
         async with self.sessions() as session:
             async with session.begin():

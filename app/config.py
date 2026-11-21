@@ -449,12 +449,29 @@ class ConfigManager:
                     continue
                 keys = base.get("api_keys", [])
                 if isinstance(keys, list):
-                    try:
-                        base["api_keys"] = [self.secret_store.decrypt_config_secret(key) if isinstance(key, str) else key for key in keys]
-                    except Exception as exc:
-                        # Keep the reason deliberately value-free; encrypted material
-                        # must never be copied into logs or validation responses.
-                        raise ConfigurationError("encrypted provider credential is invalid", ("encrypted provider credential could not be decrypted",)) from exc
+                    resolved: list[Any] = []
+                    for key in keys:
+                        if not isinstance(key, str):
+                            resolved.append(key)
+                            continue
+                        reference = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", key)
+                        if reference:
+                            variable = reference.group(1)
+                            value = os.getenv(variable)
+                            if not value or not value.strip():
+                                raise ConfigurationError(
+                                    "provider credential environment variable is missing",
+                                    (f"provider API key environment variable {variable} is not set",),
+                                )
+                            resolved.append(value)
+                            continue
+                        try:
+                            resolved.append(self.secret_store.decrypt_config_secret(key))
+                        except Exception as exc:
+                            # Keep the reason deliberately value-free; encrypted material
+                            # must never be copied into logs or validation responses.
+                            raise ConfigurationError("encrypted provider credential is invalid", ("encrypted provider credential could not be decrypted",)) from exc
+                    base["api_keys"] = resolved
 
     def redacted_dump(self) -> dict[str, Any]:
         data = self.snapshot.config.model_dump(mode="json")

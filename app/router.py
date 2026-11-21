@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import AsyncIterator
 
 from .config import GatewayConfig
@@ -29,6 +29,31 @@ class GatewayRouter:
         self.health = health
         self.state = state
 
+    async def _candidates_with_context_fallback(
+        self, config: GatewayConfig, request: CanonicalRequest,
+    ) -> tuple[list[Candidate], CanonicalRequest]:
+        selected_request = request
+        retries = 0
+        while True:
+            try:
+                return await self.registry.candidates(config, selected_request), selected_request
+            except NoEligibleCandidate as failure:
+                current_limit = selected_request.max_output_tokens
+                if (
+                    failure.code != "context_length_exceeded"
+                    or current_limit is None
+                    or current_limit <= 1
+                    or retries >= 10
+                ):
+                    raise
+                next_limit = max(1, current_limit // 2)
+                selected_request = replace(selected_request, max_output_tokens=next_limit)
+                retries += 1
+                logger.info(
+                    "reducing output limit to fit discovered model context window limit=%d retry=%d",
+                    next_limit, retries,
+                )
+
     async def complete(
         self,
         config: GatewayConfig,
@@ -37,7 +62,7 @@ class GatewayRouter:
         api_key_id: str,
         affinity_key: str | None,
     ) -> CompletionResult:
-        candidates = await self.registry.candidates(config, request)
+        candidates, request = await self._candidates_with_context_fallback(config, request)
         affinity = await self.state.load_affinity(affinity_key)
         failed_models: set[tuple[str, str, str]] = set()
         failed_bases: set[tuple[str, str]] = set()
@@ -93,7 +118,7 @@ class GatewayRouter:
         api_key_id: str,
         affinity_key: str | None,
     ) -> AsyncIterator[tuple[Candidate, CanonicalDelta]]:
-        candidates = await self.registry.candidates(config, request)
+        candidates, request = await self._candidates_with_context_fallback(config, request)
         affinity = await self.state.load_affinity(affinity_key)
         failed_models: set[tuple[str, str, str]] = set()
         failed_bases: set[tuple[str, str]] = set()

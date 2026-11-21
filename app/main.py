@@ -195,6 +195,9 @@ def create_app(
         return data
 
     async def safe_log_request(**kwargs) -> None:
+        if app_settings.vercel_runtime:
+            # Vercel's ephemeral SQLite is not a durable analytics store.
+            return
         try:
             await state.log_request(**kwargs)
         except Exception as exc:
@@ -245,6 +248,7 @@ def create_app(
             request,
             app_settings.trusted_proxy_cidrs,
             vercel_proxy_secret=app_settings.vercel_proxy_secret,
+            vercel_runtime=app_settings.vercel_runtime,
         )
         ip_digest = secret_store.digest(ip, "key-issue-ip")
         secret, record = await key_service.issue(ip_digest)
@@ -365,6 +369,14 @@ def create_app(
         if previous_id is not None:
             if not isinstance(previous_id, str) or len(previous_id) > 80:
                 raise PublicAPIError(400, "previous_response_id is invalid.", "invalid_request_error", "invalid_previous_response_id", "previous_response_id")
+            if app_settings.vercel_runtime:
+                raise PublicAPIError(
+                    400,
+                    "Vercel mode does not persist Responses conversation history. Send the full conversation in input instead.",
+                    "invalid_request_error",
+                    "response_state_unavailable",
+                    "previous_response_id",
+                )
             previous_messages = await state.load_response_messages(previous_id, api_key.id)
         canonical = parse_responses_request(
             body,
