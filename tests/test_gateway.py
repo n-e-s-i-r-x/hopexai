@@ -30,6 +30,16 @@ async def test_home_key_generation_and_public_model_listing(tmp_path):
         assert "HopeXAI" in page.text
         assert "Generate API key" in page.text
         assert "provider" not in page.text.lower()
+        css = await client.get("/static/site.css")
+        assert css.status_code == 200
+        assert "-webkit-tap-highlight-color: transparent" in css.text
+        assert "overflow: hidden" in css.text
+        assert "body { position: fixed; inset: 0; }" in css.text
+        assert "background-color: #ececec" in css.text
+        assert ".button.is-pressed" in css.text
+        script = await client.get("/static/site.js")
+        assert script.status_code == 200
+        assert "x-request-id" in script.text
 
         issued = await create_key(client)
         key = issued["api_key"]
@@ -412,3 +422,49 @@ async def test_configured_public_origin_allows_vercel_proxy_and_rejects_other_or
         )
         assert rejected_origin.status_code == 403
         assert rejected_origin.json()["error"]["code"] == "origin_not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_vercel_signed_keys_authenticate_across_function_instances(tmp_path, monkeypatch):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("HOPEXAI_MASTER_KEY", "x" * 43)
+    mock = ProviderMock()
+
+    async with make_env(tmp_path / "instance-a", mock, vercel_runtime=True) as first:
+        issued = await create_key(first["client"])
+        key = issued["api_key"]
+        assert key.startswith("hx_v1.")
+        models = await first["client"].get("/v1/models", headers={"Authorization": f"Bearer {key}"})
+        assert models.status_code == 200
+        async with first["app"].state.sessions() as session:
+            assert await session.scalar(select(APIKeyRecord).where(APIKeyRecord.id == issued["id"])) is None
+
+    async with make_env(tmp_path / "instance-b", mock, vercel_runtime=True) as second:
+        models = await second["client"].get("/v1/models", headers={"Authorization": f"Bearer {key}"})
+        assert models.status_code == 200, models.text
+        completion = await second["client"].post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": "hopexai", "messages": [{"role": "user", "content": "test"}]},
+        )
+        assert completion.status_code == 200, completion.text
+        assert completion.json()["choices"][0]["message"]["content"] == "Hello from HopeXAI."
+
+        response = await second["client"].post(
+            "/v1/responses",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": "hopexai", "input": "Continue"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["store"] is False
+        chained = await second["client"].post(
+            "/v1/responses",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"model": "hopexai", "previous_response_id": response.json()["id"], "input": "Continue"},
+        )
+        assert chained.status_code == 400
+        assert chained.json()["error"]["code"] == "response_state_unavailable"
+
+        tampered_key = key[:-1] + ("A" if key[-1] != "A" else "B")
+        rejected = await second["client"].get("/v1/models", headers={"Authorization": f"Bearer {tampered_key}"})
+        assert rejected.status_code == 401

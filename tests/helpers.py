@@ -207,6 +207,7 @@ async def make_env(
     *,
     public_origin: str | None = None,
     proxy_secret: str | None = None,
+    vercel_runtime: bool = False,
 ):
     config = config or config_data()
     default_model = config.get("_test_model")
@@ -231,6 +232,7 @@ async def make_env(
         log_level="WARNING",
         public_origin=public_origin,
         vercel_proxy_secret=proxy_secret,
+        vercel_runtime=vercel_runtime,
     )
     transport = httpx.MockTransport(mock)
     app = create_app(
