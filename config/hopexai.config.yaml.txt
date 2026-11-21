@@ -1,0 +1,118 @@
+# HopeXAI's active provider config. Edit this file directly before deployment.
+# Keep actual API keys out of public GitHub repositories. For Vercel, you can
+# replace the key below with ${HOPEXAI_PROVIDER_API_KEY} and set that server-side
+# environment variable in the Vercel project. See README.md for the full flow.
+schema_version: 1
+
+defaults:
+  default_max_output_tokens: 4096
+  max_output_tokens_limit: 8192
+  free_only: false
+  retry_ambiguous_failures: false
+
+providers:
+  - name: xkiro
+    enabled: true
+    priority: 10
+    api_format: openai_chat
+    auth:
+      mode: bearer
+      prefix: "Bearer "
+    base_urls:
+      - url: https://api.xkiro.com/v1
+        api_keys:
+          - sk-xt-350a9fa918eb866c4e2c466d6f7ec34d1b71faf58912686a
+          - sk-xt-fbb776f83428fca0a9b603350d2f1c23b2c0a33a99e27122
+          - sk-xt-b16839afc9206b505c2145cc2ddef4acc23fb7938ed788a3
+          - sk-xt-2ef025bf65cb4184c751006234ef257f95635180cfd412a6
+          - sk-xt-28b3fc9678eee5a057a7d8b6d0989bf56bc672dca99fe9aa
+          - sk-xt-4127a8d8ec628a82ee63343b66d06f9da8e5d3f4514e012f
+          - sk-xt-e59ec5a08c84c4bf809f6d5c4d4515532823686bd696fbd9
+        api_format: openai_chat
+        model_discovery: true
+        # Keep only capabilities that the provider confirms in its documentation.
+        default_capabilities:
+          chat: true
+          streaming: true
+
+  - name: openrouter
+    enabled: true
+    priority: 10
+    api_format: openai_chat
+    auth:
+      mode: bearer
+      prefix: "Bearer "
+    base_urls:
+      - url: https://openrouter.ai/api/v1
+        api_keys:
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
+        api_format: openai_chat
+        model_discovery: true
+        default_capabilities:
+          chat: true
+          streaming: true
+
+  - name: nvidia
+    enabled: true
+    priority: 10
+    api_format: openai_chat
+    auth:
+      mode: bearer
+      prefix: "Bearer "
+    base_urls:
+      - url: https://integrate.api.nvidia.com/v1
+        api_keys:
+          - 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
+          - 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
+        api_format: openai_chat
+        model_discovery: true
+        default_capabilities:
+          chat: true
+          streaming: true
+
+  - name: tokenharbor
+    enabled: true
+    priority: 10
+    api_format: openai_chat
+    auth:
+      mode: bearer
+      prefix: "Bearer "
+    base_urls:
+      - url: https://tokenharbor.ai/v1
+        api_keys:
+          - thk_live_NCqcLYhkv2An_moKsWoTsMh3-fiXHoObsDUdtFwu4UN-qM_opJ33tkX0VnTDzRPf
+          - thk_live_aSnNVORx9DVL3YgUarkQhJJJNd9XTejlO4U5d5RHMxyJQF7hwUjNezaom1fM_uQh
+          - thk_live_DauobWy_CiAdDEVFJpqcBZAA73nFC5iPWa-aBFu2a2qFmja1XIXWMpxKwKUctMI8
+          - thk_live_zbXhkY7FIxhAfIjshCDFuKpahas05IVUu-566iiuyCLwAIxAjBPKSJntPGWKZL40
+          - thk_live_KGrkwlTh_Ek3RyeM7lW1iTVC8NwyAaIQNg193VS231sFfymO9_eW8JuWnrf4nC5l
+          - thk_live__CCr5SDnJG2WeIic29eJ3RTqnma0aHbGBe4ZovcLcWHyWo7r9X95VANtFb7uFdgR
+        api_format: openai_chat
+        model_discovery: true
+        default_capabilities:
+          chat: true
+          streaming: true
+
+  # This key's prefix alone does not confirm Gemini API access or key restrictions.
+  - name: google_gemini
+    enabled: true
+    priority: 10
+    api_format: openai_chat
+    auth:
+      mode: header
+      header_name: x-goog-api-key
+      prefix: ""
+    base_urls:
+      - url: https://generativelanguage.googleapis.com/v1beta/openai
+        api_keys:
+          - AIzaSyBFh1gEg7_KKcv7jH--r8VxxS28IwOzdhI
+        api_format: openai_chat
+        model_discovery: true
+        default_capabilities:
+          chat: true
+          streaming: true
