@@ -1,13 +1,14 @@
-# The Vercel project contains only the static frontend and its rewrite config.
-# Keep backend-private state and local development artifacts out of the upload.
+# Do not upload local credentials, runtime state, development artifacts, or tests.
 private/
 var/
 .env
 .env.*
-!.env.example
-.venv/
-__pycache__/
-.pytest_cache/
 *.db
 *.sqlite
 *.sqlite3
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.venv/
+tests/
+migrations/

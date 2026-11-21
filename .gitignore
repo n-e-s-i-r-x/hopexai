@@ -6,7 +6,6 @@ private/state/
 private/master.key
 .env
 .env.*
-!.env.example
 
 # Runtime data
 var/
