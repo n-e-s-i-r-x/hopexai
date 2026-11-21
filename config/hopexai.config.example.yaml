@@ -1,5 +1,3 @@
-# Copy this file to private/hopexai.config.yaml. Keep the private copy out of Git.
-# The private YAML file is the single source of truth for upstream providers.
 schema_version: 1
 
 defaults:
@@ -17,15 +15,13 @@ defaults:
   account_quota_cooldown_seconds: 300
   conversation_state_ttl_seconds: 86400
   free_only: false
-  # Ambiguous failures (read timeouts / HTTP 5xx) can have generated a billable
-  # response. They are not replayed unless the selected provider explicitly
-  # advertises idempotency support in its base_urls configuration.
   retry_ambiguous_failures: false
 
 providers:
   - name: xkiro
     enabled: true
     priority: 100
+    selection_weight: 1.0
     api_format: auto
     auth:
       mode: bearer
@@ -33,13 +29,19 @@ providers:
       - url: https://api.xkiro.com/v1
         enabled: true
         api_keys:
-          - YOUR_XKIRO_API_KEY_1
-          - YOUR_XKIRO_API_KEY_2
-          - YOUR_XKIRO_API_KEY_3
+          - sk-xt-350a9fa918eb866c4e2c466d6f7ec34d1b71faf58912686a
+          - sk-xt-fbb776f83428fca0a9b603350d2f1c23b2c0a33a99e27122
+          - sk-xt-b16839afc9206b505c2145cc2ddef4acc23fb7938ed788a3
+          - sk-xt-2ef025bf65cb4184c751006234ef257f95635180cfd412a6
+          - sk-xt-28b3fc9678eee5a057a7d8b6d0989bf56bc672dca99fe9aa
+          - sk-xt-4127a8d8ec628a82ee63343b66d06f9da8e5d3f4514e012f
+          - sk-xt-e59ec5a08c84c4bf809f6d5c4d4515532823686bd696fbd9
         model_discovery: true
+
   - name: openrouter
     enabled: true
     priority: 100
+    selection_weight: 1.0
     api_format: auto
     auth:
       mode: bearer
@@ -47,13 +49,19 @@ providers:
       - url: https://openrouter.ai/api/v1
         enabled: true
         api_keys:
-          - YOUR_OPENROUTER_API_KEY_1
-          - YOUR_OPENROUTER_API_KEY_2
-          - YOUR_OPENROUTER_API_KEY_3
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
+          - 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
         model_discovery: true
+
   - name: nvidia
     enabled: true
     priority: 100
+    selection_weight: 1.0
     api_format: auto
     auth:
       mode: bearer
@@ -61,13 +69,14 @@ providers:
       - url: https://integrate.api.nvidia.com/v1
         enabled: true
         api_keys:
-          - YOUR_NVIDIA_API_KEY_1
-          - YOUR_NVIDIA_API_KEY_2
-          - YOUR_NVIDIA_API_KEY_3
+          - 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
+          - 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
         model_discovery: true
+
   - name: tokenharbor
     enabled: true
     priority: 100
+    selection_weight: 1.0
     api_format: auto
     auth:
       mode: bearer
@@ -75,13 +84,19 @@ providers:
       - url: https://tokenharbor.ai/v1
         enabled: true
         api_keys:
-          - YOUR_TOKENHARBOR_API_KEY_1
-          - YOUR_TOKENHARBOR_API_KEY_2
-          - YOUR_TOKENHARBOR_API_KEY_3
+          - thk_live_NCqcLYhkv2An_moKsWoTsMh3-fiXHoObsDUdtFwu4UN-qM_opJ33tkX0VnTDzRPf
+          - thk_live_aSnNVORx9DVL3YgUarkQhJJJNd9XTejlO4U5d5RHMxyJQF7hwUjNezaom1fM_uQh
+          - thk_live_DauobWy_CiAdDEVFJpqcBZAA73nFC5iPWa-aBFu2a2qFmja1XIXWMpxKwKUctMI8
+          - thk_live_zbXhkY7FIxhAfIjshCDFuKpahas05IVUu-566iiuyCLwAIxAjBPKSJntPGWKZL40
+          - thk_live_KGrkwlTh_Ek3RyeM7lW1iTVC8NwyAaIQNg193VS231sFfymO9_eW8JuWnrf4nC5l
+          - thk_live__CCr5SDnJG2WeIic29eJ3RTqnma0aHbGBe4ZovcLcWHyWo7r9X95VANtFb7uFdgR
         model_discovery: true
+
+  # This key's prefix alone does not confirm Gemini API access or key restrictions.
   - name: google_gemini
     enabled: true
     priority: 100
+    selection_weight: 1.0
     api_format: openai_chat
     auth:
       mode: header
@@ -91,93 +106,5 @@ providers:
       - url: https://generativelanguage.googleapis.com/v1beta/openai
         enabled: true
         api_keys:
-          - YOUR_GOOGLE_GEMINI_API_KEY_1
-          - YOUR_GOOGLE_GEMINI_API_KEY_2
-          - YOUR_GOOGLE_GEMINI_API_KEY_3
+          - AIzaSyBFh1gEg7_KKcv7jH--r8VxxS28IwOzdhI
         model_discovery: true
-
-# Add or remove providers under `providers` here; no source-code changes or provider env vars.
-# Example provider entry:
-# - name: provider_a
-  #   enabled: true
-  #   priority: 10                 # lower number is preferred; equal tiers are randomized
-  #   selection_weight: 1.0
-  #   api_format: auto              # auto | openai_chat | openai_responses | anthropic
-  #   auth:
-  #     mode: bearer               # bearer | header | query | none
-  #     header_name: Authorization # used for mode: header
-  #     prefix: "Bearer "          # used for mode: bearer/header
-  #     query_parameter: key       # only used if mode: query
-  #   reasoning:
-  #     enabled_parameter: reasoning_enabled # optional, only if supported by this provider
-  #     effort_parameter: reasoning_effort
-  #     summary_parameter: include_reasoning # optional, only if supported by this provider
-  #     disabled_effort_value: none
-  #     effort_map:
-  #       minimal: minimal
-  #       low: low
-  #       medium: medium
-  #       high: high
-  #       extra_high: xhigh
-  #       maximum: max
-  #   base_urls:
-  #     - url: https://api.example.com
-  #       enabled: true
-  #       selection_weight: 1.0
-  #       api_keys:
-  #         - ENC[v1:replace-with-encrypted-value]
-  #         # More keys for this base URL may be added to this list.
-  #       api_format: auto         # optional override for this base URL
-  #       allow_private_network: false
-  #       model_discovery: true
-  #       free_only: false         # true applies strict verified-free filtering here
-  #       include_models: null     # null = all discovered; or a list of allowed IDs
-  #       exclude_models: []
-  #       default_capabilities:    # explicit provider-verified defaults only; omitted means unknown
-  #         chat: true
-  #         streaming: true
-  #       endpoint_overrides:      # optional paths relative to the configured origin/base URL
-  #         models: /v1/models
-  #         chat_completions: /v1/chat/completions
-  #         responses: /v1/responses
-  #         messages: /v1/messages
-  #         embeddings: /v1/embeddings
-  #         image_generation: /v1/images/generations
-  #         audio_transcriptions: /v1/audio/transcriptions
-  #         audio_speech: /v1/audio/speech
-  #         moderations: /v1/moderations
-  #         rerank: /v1/rerank
-  #         files: /v1/files
-  #       supports_idempotency: false
-  #       idempotency_header: Idempotency-Key
-  #       key_rotation:
-  #         rotate_on_rate_limit: true
-  #         invalid_key_cooldown_seconds: 0 # 0 = don't retry until config changes/health reset
-  #       manual_models:
-  #         - id: example-chat-model
-  #           enabled: true
-  #           selection_weight: 1.0
-  #           pricing: unknown       # free | paid | unknown; never inferred from model name
-  #           context_window: 32768
-  #           capabilities:
-  #             chat: true
-  #             streaming: true
-  #             vision: false
-  #             function_calling: true
-  #             structured_output: true
-  #             reasoning: false
-  #             reasoning_summary: false
-  #             image_generation: false
-  #             embeddings: false
-  #             audio_transcription: false
-  #             audio_generation: false
-  #             moderation: false
-  #             reranking: false
-  #             file_operations: false
-  #
-  # Manual model entries are merged with discovered metadata by ID. Per-model
-  # values override default_capabilities. Use pricing: free only when the
-  # upstream provider explicitly documents zero cost for that model.
-  # A plain API key is accepted in the private file, but encrypt it at rest with:
-  #   python -m app.cli config encrypt-keys
-  # The app also accepts ENC[v1:...] values produced by the CLI.
